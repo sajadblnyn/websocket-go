@@ -11,6 +11,8 @@
         <div class="center">
             <h1>Amazing Chat Application</h1>
             <h3 id="chat-header">Currently in chat:general</h3>
+            <h3 id="connection-header">Connected to websocket: false</h3>
+
 
             <form id="chatroom-selection">
                 <label for="chatroom">Chatroom:</label>
@@ -31,45 +33,161 @@
                 <input type="submit" value="Send Message">
 
             </form>
+            <div style="border: 3px solid black;margin-top: 30px;">
+                <form id="login-form">
+                    <label for="username">username:</label>
+                    <input type="text" id="username" name="username"><br>
+
+                    <label for="password">password:</label>
+                    <input type="text" id="password" name="password"><br><br>
+                    <input type="submit" value="login">
+                </form>
+            </div>
         </div>
 
         <script>
-            var selectedChatroom="general";
+            class Event{
+                constructor(eventType,payload){
+                    this.type=eventType;
+                    this.payload=payload;
+                }
+            }
+            class SendMessageEvent{
+                constructor(message,from){
+                    this.message=message;
+                    this.from=from;
+                }
+            }
+
+            class NewMessageEvent{
+                constructor(message,from,sentAt){
+                    this.message=message;
+                    this.from=from;
+                    this.sentAt=sentAt;
+
+                }
+            }
+
+            class ChangeChatroomEvent{
+                constructor(name){
+                    this.name=name;
+                }
+            }
 
             function changeChatRoom(params) {
                 var newChat = document.getElementById("chatroom");
                 if(newChat!=null && newChat.value!=selectedChatroom){
-                    console.log(newChat)
+                    var changeRoom = new ChangeChatroomEvent(newChat.value);
+                    sendEvent("change_room",changeRoom);
+                    selectedChatroom=newChat.value;
+
+                    document.getElementById("chat-header").innerHTML="Currently in chat:"+selectedChatroom;
+                    txtArea=document.getElementById("chatmessages");
+                    txtArea.innerHTML="chat room changed to : "+selectedChatroom;
                 }
                 return false
                 
             }
+
+            function sendEvent(eventType,payload) {
+                event=new Event(eventType,payload)
+                conn.send(JSON.stringify(event))
+            }
+
+            function routeEvent(event) {
+                if(event.type===undefined){
+                    alert("no type field in the event!")
+                }
+
+                switch (event.type) {
+                        case "new_message":
+                            const newMessageEvent=Object.assign(new NewMessageEvent,event.payload)
+                            appendChatMessage(newMessageEvent)
+                            console.log("new message")
+                            break;
+                    
+                        default:
+                            console.log("unsupported event type")
+                            break;
+                }
+                
+            }
+
+            function appendChatMessage(messageEvent) {
+                var date= new Date(messageEvent.sentAt);
+                const formattedMsg=`${date.toLocaleString()}: ${messageEvent.message}`
+
+                txtArea=document.getElementById("chatmessages");
+                txtArea.innerHTML=txtArea.innerHTML+"\n"+formattedMsg
+
+                txtArea.scrollTop=txtArea.scrollHeight;
+                
+            }
+            var selectedChatroom="general";
+
+          
 
             function sendMessage(params) {
                 var newMessage=document.getElementById("message");
+
                 if(newMessage!=null){
-                    console.log(newMessage)
-                    conn.send(newMessage.value)
+                    let sendMessage=new SendMessageEvent(newMessage.value,"sajad");
+
+                    sendEvent("send_message",sendMessage);
                 }
                 return false
                 
             }
 
+            function login() {
+                loginData={
+                    "username":document.getElementById("username").value,
+                    "password":document.getElementById("password").value
+                }
+                fetch("login",{
+                    method:"post",
+                    body:JSON.stringify(loginData),
+                    mode:"cors"
+                }).then((res)=>{
+                    if(res.ok){
+                        return res.json();
+                    }
+                    else{
+                        throw "unauthorized"
+                    }
+                }).then((data)=>{
+                    connectToWebsocket(data.otp)
+                }).catch((e)=>{alert(e)})
+                return false
+            }
+            function connectToWebsocket(otp) {
+                if(window["WebSocket"]){
+                conn=new WebSocket("ws://"+document.location.host+"/ws?otp="+otp)
+                
+                conn.onopen=function (evt) {
+                    document.getElementById("connection-header").innerHTML="Connected to websocket : true"
+                }
+
+                conn.onclose=function (evt) {
+                    document.getElementById("connection-header").innerHTML="Connected to websocket : false"
+                }
+
+                conn.onmessage=function(evt){
+                const parsedEvent=JSON.parse(evt.data)
+                const event=Object.assign(new Event,parsedEvent)
+                routeEvent(event)
+                }
+                console.log("browser supports websocket")
+                }
+                else{
+                alert("Browser does not support websocket")
+                }
+            }
             window.onload=function(){
                 document.getElementById("chatroom-selection").onsubmit=changeChatRoom
                 document.getElementById("chatroom-message").onsubmit=sendMessage
-
-
-                if(window["WebSocket"]){
-                    conn=new WebSocket("ws://"+document.location.host+"/ws")
-                    conn.onmessage=function(event){
-                        console.log(event)
-                    }
-                    console.log("browser supports websocket")
-                }
-                else{
-                    alert("Browser does not support websocket")
-                }
+                document.getElementById("login-form").onsubmit=login
+                
             }
         </script>
 
